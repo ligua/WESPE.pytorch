@@ -41,7 +41,7 @@ class Generator(nn.Module):
         )
         self.conv2 = nn.Conv2d(64, 64, 3, padding=1)
         self.conv3 = nn.Conv2d(64, 64, 3, padding=1)
-        self.conv4 = nn.Conv2d(64, 64, 3, padding=1)
+        self.conv4 = nn.Conv2d(64, 3, 3, padding=1)
 
     def forward(self, x):
 
@@ -65,10 +65,11 @@ class Discriminator(nn.Module):
         self.bn2 = nn.BatchNorm2d(192)
         self.conv4 = nn.Conv2d(192, 192, 3, padding=1)
         self.conv5 = nn.Conv2d(192, 128, 3, stride=2, padding=1)
-        self.fc = nn.Linear(1, 1024)
+        self.fc = nn.Linear(128*7*7, 1024)
+        self.out = nn.Linear(1024, 2)
 
     def forward(self, x):
-
+        batch_size = x.size()[0]
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = self.bn1(x)
@@ -78,8 +79,10 @@ class Discriminator(nn.Module):
         x = self.bn2(x)
         x = F.relu(self.conv5(x))
         x = self.bn1(x)
-
+        x = x.view(batch_size, 128*7*7)
+        x = x.view(batch_size, 128*7*7)
         x = F.sigmoid(self.fc(x))
+        x = F.softmax(self.out(x))
         return x
 
 
