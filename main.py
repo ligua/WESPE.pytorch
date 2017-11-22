@@ -1,13 +1,83 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-
+import cv2 as cv
 import torchvision
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 import torch.optim as optimizer
-
+from torchvision import transforms
+import numpy as np
 import model
+
+
+def gray(image):
+    R = image[0]
+    G = image[1]
+    B = image[2]
+    tensor = 0.299 * R + 0.587 * G + 0.114 * B
+    return tensor
+
+
+def batch_gray(images):
+    """
+    Grayscale for Batch Images
+    :param images: [Batch, Channel, W, H]
+    :return: [Batch, W, H]
+    """
+    batch_size = images.size()[0]
+    h = images.size()[2]
+    w = images.size()[3]
+
+    result = Variable(torch.zeros([batch_size, h, w]))
+    for i in xrange(batch_size):
+        result[i] = gray(images[i])
+
+    return result
+
+
+# to Tensor [Batch, Channel, W, H]
+transform1 = transforms.Compose([
+    transforms.ToTensor(),
+    ]
+)
+
+transform2 = transforms.Compose([
+    transforms.ToPILImage(),
+])
+
+
+def batch_gaussian(images):
+
+    batch_size = images.size()[0]
+
+    result = Variable(torch.zeros(images.size()))
+
+    for i in xrange(batch_size):
+
+        img = images[i]
+        img = transform2(img.data)
+        img = np.asarray(img)
+        blurred = cv.GaussianBlur(img, ksize=(0, 0), sigmaX=3)
+        img = transform1(blurred)
+        result[i] = img
+
+    return result
+
+
+def save_model(
+        name,
+        gennet_g,
+        gennet_f,
+        discrinet_c,
+        discrinet_t,
+):
+
+    torch.save(gennet_f.state_dict(), '%s_gennet_f.pth' % name)
+    torch.save(gennet_g.state_dict(), '%s_gennet_g.pth' % name)
+    torch.save(discrinet_c.state_dict(), '%s_discrinet_c.pth' % name)
+    torch.save(discrinet_t.state_dict(), '%s_discrinet_t.pth' % name)
 
 
 def train_step(
@@ -25,22 +95,32 @@ def train_step(
         optimizers
 ):
 
+    # Generator
     y_fake = gennet_g(x)
     x_fake = gennet_f(y_fake)
 
-    x_fake_features = vgg(x)
-    x_features = vgg(x_fake).detach()
+    # Content
+    x_fake_features = vgg(x_fake)
+    x_features = vgg(x).detach()
 
-    content_loss = content_criterion(x_fake_features, x_features)
-    tv_loss = tv_criterion(y_fake)
+    content_loss = content_criterion(x_fake_features, x_features) / \
+                   (x_fake_features.size()[1]*x_fake_features.size()[2]*x_fake_features.size()[3])
 
-    y_fake_color_predict = discrinet_c(y_fake)
-    y_color_predict = discrinet_c(y).detach()
+    tv_loss = tv_criterion(y_fake) / (y_fake.size()[1]*y_fake.size()[2]*y_fake.size()[3])
+
+    # Colot Discriminator
+    y_blur_fake = batch_gaussian(y_fake)
+    y_blur = batch_gaussian(y)
+    y_fake_color_predict = discrinet_c(y_blur_fake)
+    y_color_predict = discrinet_c(y_blur).detach()
 
     color_loss = 0.5*(color_criterion(y_fake_color_predict, False) + color_criterion(y_color_predict, True))
 
-    y_fake_texture_predict = discrinet_t(y_fake)
-    y_texture_predict = discrinet_t(y).detach()
+    # Texture Discriminator
+    y_gray_fake = batch_gray(y_fake)
+    y_gray = batch_gray(y)
+    y_fake_texture_predict = discrinet_t(y_gray_fake)
+    y_texture_predict = discrinet_t(y_gray).detach()
 
     texture_loss = 0.5*(texture_critetion(y_fake_texture_predict, False) + texture_critetion(y_texture_predict, True))
 
@@ -84,7 +164,6 @@ def generate_batches(images, batch_size):
         'x': 0,
         'y': 0
     }
-
 
 
 def train(opt, images):
@@ -140,6 +219,7 @@ def train(opt, images):
             print("Content Loss: %s \n" % loss['content_loss'])
             print("TV Loss: %s \n" % loss['tv_loss'])
             print("Texture Loss: %s \n" % loss['texture_loss'])
+
 
 def main():
 
