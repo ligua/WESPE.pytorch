@@ -9,7 +9,6 @@ import scipy.ndimage as ndimage
 from torchvision import transforms
 
 
-
 class ConvBlock(nn.Module):
 
     def __init__(self):
@@ -26,6 +25,45 @@ class ConvBlock(nn.Module):
         x = self.bn(x)
 
         return x
+
+
+class GaussianBlur(nn.Module):
+    def __init__(self):
+        super(GaussianBlur, self).__init__()
+        kernel = [[0.031827, 0.037541, 0.039665, 0.037541, 0.031827],
+                  [0.037541, 0.044281, 0.046787, 0.044281, 0.037541],
+                  [0.039665, 0.046787, 0.049434, 0.046787, 0.039665],
+                  [0.037541, 0.044281, 0.046787, 0.044281, 0.037541],
+                  [0.031827, 0.037541, 0.039665, 0.037541, 0.031827]]
+        kernel = torch.FloatTensor(kernel).unsqueeze(0).unsqueeze(0)
+        self.weight = nn.Parameter(data=kernel, requires_grad=False)
+
+    def forward(self, x):
+        x1 = x[:, 0]
+        x2 = x[:, 1]
+        x3 = x[:, 2]
+        x1 = F.conv2d(x1.unsqueeze(0), self.weight, padding=2)
+        x2 = F.conv2d(x2.unsqueeze(0), self.weight, padding=2)
+        x3 = F.conv2d(x3.unsqueeze(0), self.weight, padding=2)
+        x = torch.cat([x3, x2, x1], dim=1)
+        return x
+
+
+class GrayLayer(nn.Module):
+
+    def __init__(self, use_cuda):
+        super(GrayLayer, self).__init__()
+        self.use_cuda = use_cuda
+
+    def forward(self, x):
+
+        (B, C, H, W) = x.size()
+        result = Variable(torch.zeros([B, 1, H, W]))
+        if self.use_cuda:
+            result = result.cuda()
+        for i in xrange(B):
+            result[i] = 0.299 * x[i, 0] + 0.587 * x[i, 1] + 0.114 * x[i, 2]
+        return result
 
 
 class Generator(nn.Module):
@@ -83,6 +121,7 @@ class Discriminator(nn.Module):
         x = x.view(batch_size, 128*7*7)
         x = F.sigmoid(self.fc(x))
         x = F.softmax(self.out(x))
+
         return x
 
 
@@ -117,6 +156,15 @@ class TVLoss(nn.Module):
     def _tensor_size(self, t):
 
         return t.size()[1]*t.size()[2]*t.size()[3]
+
+
+class DiscriminatorLoss(nn.Module):
+
+    def __init__(self):
+        super(DiscriminatorLoss, self).__init__()
+
+    def forward(self, x):
+        return -torch.mean(torch.log(x[, :1]))
 
 
 class GANLoss(nn.Module):
