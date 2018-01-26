@@ -42,9 +42,9 @@ class GaussianBlur(nn.Module):
         x1 = x[:, 0]
         x2 = x[:, 1]
         x3 = x[:, 2]
-        x1 = F.conv2d(x1.unsqueeze(0), self.weight, padding=2)
-        x2 = F.conv2d(x2.unsqueeze(0), self.weight, padding=2)
-        x3 = F.conv2d(x3.unsqueeze(0), self.weight, padding=2)
+        x1 = F.conv2d(x1.unsqueeze(1), self.weight, padding=2)
+        x2 = F.conv2d(x2.unsqueeze(1), self.weight, padding=2)
+        x3 = F.conv2d(x3.unsqueeze(1), self.weight, padding=2)
         x = torch.cat([x3, x2, x1], dim=1)
         return x
 
@@ -156,15 +156,6 @@ class TVLoss(nn.Module):
     def _tensor_size(self, t):
 
         return t.size()[1]*t.size()[2]*t.size()[3]
-
-
-class DiscriminatorLoss(nn.Module):
-
-    def __init__(self):
-        super(DiscriminatorLoss, self).__init__()
-
-    def forward(self, x):
-        return -torch.mean(torch.log(x[, :1]))
 
 
 class GANLoss(nn.Module):

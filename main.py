@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import cv2 as cv
-import torchvision
 import torch
+from torchvision import transforms
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.optim as optimizer
-from torchvision import transforms
 import numpy as np
 import model
+from PIL import Image
 
 
 def save_model(
@@ -70,6 +69,12 @@ def train_step(use_cuda,
     color_criterion = nn.CrossEntropyLoss()
     tv_criterion = model.TVLoss(1.0)
 
+    if use_cuda:
+        content_criterion = content_criterion.cuda()
+        texture_criterion = texture_criterion.cuda()
+        color_criterion = color_criterion.cuda()
+        tv_criterion = tv_criterion.cuda()
+
     g_optimizer = optimizers['g']
     f_optimizer = optimizers['f']
     c_optimizer = optimizers['c']
@@ -91,31 +96,41 @@ def train_step(use_cuda,
     chw2 = c2 * h2 * w2
     tv_loss = 1.0/chw2 * tv_criterion.forward(y_fake)
 
-    # Train Discriminator
+    # Train Discriminators
 
     # Color Discriminator
     y_blur = blur_layer(target_image).detach()
     y_fake_blur = blur_layer(y_fake)
+
     random_discrim_label = Variable(torch.LongTensor(np.random.randint(0, 2, batch_size)))
-    tmp_random_label = random_discrim_label.float()
     blur_input = Variable(torch.zeros((batch_size, c2, h2, w2)))
+    if use_cuda:
+        random_discrim_label = random_discrim_label.cuda()
+        blur_input = blur_input.cuda()
+    tmp_random_label = random_discrim_label.float()
     for batch_index in xrange(batch_size):
-        blur_input[batch_index] = tmp_random_label[batch_index].data * y_blur \
-                                  + (1-tmp_random_label[batch_index].data) * y_fake_blur.detach()
+        blur_input[batch_index] = tmp_random_label[batch_index] * y_blur[batch_index] \
+                                  + (1-tmp_random_label[batch_index]) * y_fake_blur[batch_index].detach()
+
     y_color_predict = discriminator_c(blur_input)
-    color_loss = color_criterion(random_discrim_label, y_color_predict)
+    # print(y_color_predict.size(), random_discrim_label.size())
+    color_loss = color_criterion(y_color_predict, random_discrim_label)
     loss['discrim_color_loss'] = color_loss.data[0]
+
     # Texture Discriminator
     y_texture = gray_layer(target_image).detach()
     y_fake_texture = gray_layer(y_fake)
     random_discrim_label = Variable(torch.LongTensor(np.random.randint(0, 2, batch_size)))
+    texture_input = Variable(torch.zeros((batch_size, 1, h2, w2)))
+    if use_cuda:
+        random_discrim_label = random_discrim_label.cuda()
+        texture_input = texture_input.cuda()
     tmp_random_label = random_discrim_label.float()
-    texture_input = Variable(torch.zeros((batch_size, c2, h2, w2)))
     for batch_index in xrange(batch_size):
-        texture_input[batch_index] = tmp_random_label[batch_index].data * y_texture \
-                                  + (1-tmp_random_label[batch_index].data) * y_fake_texture.detach()
+        texture_input[batch_index] = tmp_random_label[batch_index] * y_texture[batch_index] \
+                                  + (1-tmp_random_label[batch_index]) * y_fake_texture[batch_index].detach()
     y_texture_predict = discriminator_t(texture_input)
-    texture_loss = texture_criterion(random_discrim_label, y_texture_predict)
+    texture_loss = texture_criterion(y_texture_predict, random_discrim_label)
     loss['discrim_texture_loss'] = texture_loss.data[0]
 
     # optimizing Discriminator
@@ -128,12 +143,14 @@ def train_step(use_cuda,
 
     # Train Generator
     label = Variable(torch.LongTensor([1]*batch_size))
+    if use_cuda:
+        label = label.cuda()
 
     y_blur_fake_prediction = discriminator_c(y_fake_blur)
-    color_loss = color_criterion(label, y_blur_fake_prediction)
+    color_loss = color_criterion(y_blur_fake_prediction, label)
 
     y_texture_fake_prediction = discriminator_t(y_fake_texture)
-    texture_loss = color_criterion(label, y_texture_fake_prediction)
+    texture_loss = color_criterion(y_texture_fake_prediction, label)
 
     total_loss = content_loss + 5*10**(-3)*(color_loss + texture_loss) + 10*tv_loss
 
@@ -154,24 +171,49 @@ def train_step(use_cuda,
     return loss
 
 
-def generate_batches(images, batch_size):
-    """
-    Generate image batches
-    :param images:
-    :param batch_size:
-    :return:
-    """
-    yield 1,2
+transforms1 = transforms.Compose([
+    transforms.ToTensor()
+])
+
+
+# TEST
+def generate_batches(opt):
+    batch_size = opt.batch_size
+    input_dir = '/Users/Vic/Downloads/sample_images 2/patches/iphone/iphone/'
+    target_dir = '/Users/Vic/Downloads/sample_images 2/patches/iphone/canon/'
+
+    input_image1 = transforms1(Image.open(input_dir+'1.jpg')).unsqueeze(0)
+    target_image1 = transforms1(Image.open(target_dir+'1.jpg')).unsqueeze(0)
+
+    input_image2 = transforms1(Image.open(input_dir+'2.jpg')).unsqueeze(0)
+    target_image2 = transforms1(Image.open(target_dir+'2.jpg')).unsqueeze(0)
+
+    input = Variable(torch.cat([input_image1, input_image2], dim=0))
+    target = Variable(torch.cat([target_image1, target_image2], dim=0))
+
+    return input, target
 
 
 def train(opt, images):
 
     gennet_g = model.Generator()
     gennet_f = model.Generator()
+
     vgg = model.VGG()
 
-    discrinet_c = model.Discriminator(6)
-    discrinet_t = model.Discriminator(2)
+    discrinet_c = model.Discriminator(3)
+    discrinet_t = model.Discriminator(1)
+
+    gray_layer = model.GrayLayer(opt.use_cuda)
+    gaussian = model.GaussianBlur()
+
+    if opt.use_cuda:
+        gennet_g = gennet_g.cuda()
+        gennet_f = gennet_f.cuda()
+        discrinet_c = discrinet_c.cuda()
+        discrinet_t = discrinet_t.cuda()
+        gray_layer = gray_layer.cuda()
+        gaussian = gaussian.cuda()
 
     g_optimizer = optimizer.Adam(params=gennet_g.parameters(), lr=opt.lr)
     f_optimizer = optimizer.Adam(params=gennet_f.parameters(), lr=opt.lr)
@@ -184,16 +226,14 @@ def train(opt, images):
     optimizers['c'] = c_optimizer
     optimizers['t'] = t_optimizer
 
-    num_samples = 0
-
-    gray_layer = model.GrayLayer(opt.use_cuda)
-    gaussian = model.GrayLayer(opt.use_cuda)
+    num_samples = 32
 
     for i in xrange(opt.epoches):
 
         for j in xrange(num_samples/opt.batch_size):
 
-            batch_images, batch_target = generate_batches(images, opt.batch_size)
+            batch_images, batch_target = generate_batches(opt)
+            print("dqd")
             loss = train_step(
                 use_cuda=opt.use_cuda,
                 vgg=vgg,
@@ -220,7 +260,6 @@ def train(opt, images):
             print("TV Loss: %s \n" % loss['tv_loss'])
 
 
-
 def main():
 
     parser = argparse.ArgumentParser()
@@ -229,6 +268,13 @@ def main():
     parser.add_argument('--lr', type=float, default=0.001, help='training learning rate')
     parser.add_argument('--epoches', type=int, default=32, help='training epoches')
 
+    args = parser.parse_args()
+
+    train(args, '')
+
+
+if __name__ == '__main__':
+    main()
 
 
 
