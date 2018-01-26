@@ -2,13 +2,15 @@
 
 import argparse
 import torch
-from torchvision import transforms
+import numpy as np
 import torch.nn as nn
+from torchvision import transforms
 from torch.autograd import Variable
 import torch.optim as optimizer
-import numpy as np
+from torch.utils.data import DataLoader
+
 import model
-from PIL import Image
+from data.data_provider import DPEDDataset
 
 
 def save_model(
@@ -171,29 +173,6 @@ def train_step(use_cuda,
     return loss
 
 
-transforms1 = transforms.Compose([
-    transforms.ToTensor()
-])
-
-
-# TEST
-def generate_batches(opt):
-    batch_size = opt.batch_size
-    input_dir = '/Users/Vic/Downloads/sample_images 2/patches/iphone/iphone/'
-    target_dir = '/Users/Vic/Downloads/sample_images 2/patches/iphone/canon/'
-
-    input_image1 = transforms1(Image.open(input_dir+'1.jpg')).unsqueeze(0)
-    target_image1 = transforms1(Image.open(target_dir+'1.jpg')).unsqueeze(0)
-
-    input_image2 = transforms1(Image.open(input_dir+'2.jpg')).unsqueeze(0)
-    target_image2 = transforms1(Image.open(target_dir+'2.jpg')).unsqueeze(0)
-
-    input = Variable(torch.cat([input_image1, input_image2], dim=0))
-    target = Variable(torch.cat([target_image1, target_image2], dim=0))
-
-    return input, target
-
-
 def train(opt, images):
 
     gennet_g = model.Generator()
@@ -214,6 +193,7 @@ def train(opt, images):
         discrinet_t = discrinet_t.cuda()
         gray_layer = gray_layer.cuda()
         gaussian = gaussian.cuda()
+        vgg = vgg.cuda()
 
     g_optimizer = optimizer.Adam(params=gennet_g.parameters(), lr=opt.lr)
     f_optimizer = optimizer.Adam(params=gennet_f.parameters(), lr=opt.lr)
@@ -226,14 +206,23 @@ def train(opt, images):
     optimizers['c'] = c_optimizer
     optimizers['t'] = t_optimizer
 
-    num_samples = 32
-
+    dataset = DPEDDataset(opt.data_dir)
+    dataloader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True)
+    num_samples = len(dataset)
+    dataiter = iter(dataloader)
     for i in xrange(opt.epoches):
 
         for j in xrange(num_samples/opt.batch_size):
 
-            batch_images, batch_target = generate_batches(opt)
-            print("dqd")
+            batch_images, batch_target = dataiter.next()
+            batch_images = Variable(batch_images)
+            batch_target = Variable(batch_target)
+
+            if opt.use_cuda:
+
+                batch_target = batch_target.cuda()
+                batch_images = batch_images.cuda()
+
             loss = train_step(
                 use_cuda=opt.use_cuda,
                 vgg=vgg,
@@ -248,21 +237,22 @@ def train(opt, images):
                 optimizers=optimizers
             )
 
-            print("\nEpoch: %s Batch: %s\n" % (i, j))
-            print("Discriminator:\n")
-            print("Color Loss: %s \n" % loss['discrim_color_loss'])
-            print("Texture Loss: %s \n" % loss['discrim_texture_loss'])
-            print("Generator:\n")
-            print("Total Loss: %s \n" % loss['total_loss'])
-            print("Content Loss: %s \n" % loss['content_loss'])
-            print("Color Loss: %s \n" % loss['fake_color_loss'])
-            print("Texture Loss: %s \n" % loss['fake_texture_loss'])
-            print("TV Loss: %s \n" % loss['tv_loss'])
+            print("\nEpoch: %s Batch: %s" % (i, j))
+            print("Discriminator:")
+            print("Color Loss: %s " % loss['discrim_color_loss'])
+            print("Texture Loss: %s " % loss['discrim_texture_loss'])
+            print("Generator:")
+            print("Total Loss: %s " % loss['total_loss'])
+            print("Content Loss: %s " % loss['content_loss'])
+            print("Color Loss: %s " % loss['fake_color_loss'])
+            print("Texture Loss: %s " % loss['fake_texture_loss'])
+            print("TV Loss: %s " % loss['tv_loss'])
 
 
 def main():
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--data_dir', type=str, help='DPED Dataset')
     parser.add_argument('--use_cuda', type=int, default=1, help='use gpu to train')
     parser.add_argument('--batch_size', type=int, default=32, help='training batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='training learning rate')
