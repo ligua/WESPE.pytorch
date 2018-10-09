@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--infer', action='store_true', default=False, help='training or inference')
     parser.add_argument('--phone', type=str, default='iphone', help='Phone type')
     parser.add_argument('-s', '--save_model_path', type=str, default='', help='model path')
-
+    parser.add_argument('-n', '--worker', type=int, default=0, help='data worker')
     args = parser.parse_args()
 
     wespe = WESPE(config,
@@ -32,7 +32,7 @@ def main():
         dataset=dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=args.worker,
         pin_memory=True,
     )
 

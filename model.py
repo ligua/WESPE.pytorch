@@ -46,13 +46,12 @@ class GaussianBlur(nn.Module):
 
 class GrayLayer(nn.Module):
 
-    def __init__(self, use_cuda):
+    def __init__(self):
         super(GrayLayer, self).__init__()
-        self.use_cuda = use_cuda
 
     def forward(self, x):
         result = 0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]
-        return result
+        return result.unsqueeze(1)
 
 
 class Generator(nn.Module):
@@ -118,7 +117,7 @@ class VGG(nn.Module):
     def __init__(self):
         super(VGG, self).__init__()
         self.model = vgg19_bn(True).features
-        self.mean = torch.Tensor([123.68,  116.779,  103.939]).to(self.model.device)
+        self.mean = torch.Tensor([123.68,  116.779,  103.939]).cuda().view(1,3,1,1)
         for param in self.model.parameters():
             param.requires_grad = False
 
@@ -166,7 +165,7 @@ class WESPE:
 
         if self.training:
             self.discriminator_c = Discriminator(input_ch=3)
-            self.discriminator_t = Discriminator(input_ch=3)
+            self.discriminator_t = Discriminator(input_ch=1)
 
             self.content_criterion = nn.L1Loss()
             self.tv_criterion = TVLoss(config.tv_weight)
@@ -212,7 +211,7 @@ class WESPE:
         self.g_optimizer.zero_grad()
         self.f_optimizer.zero_grad()
         # content loss
-        x_fake.requires_grad = True
+        # x_fake.requires_grad = True
         vgg_x_true = self.vgg(x).detach()
         vgg_x_fake = self.vgg(x_fake)
         _, c1, h1, w1 = x_fake.size()
