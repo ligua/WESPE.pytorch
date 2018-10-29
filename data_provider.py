@@ -11,19 +11,23 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 from torch.utils.data import Dataset
+from data.input_pipeline import InputPipeline
+from data.input_pipeline_img import InputPipelineImg
 
 
 to_tensor = transforms.Compose([
     transforms.ToTensor()
 ])
 
+address = 'CelebA/'
 
 class DPEDDataset(Dataset):
 
-    def __init__(self, data_dir, phone='iphone'):
+    def __init__(self, data_dir, phone='Videos'):
+
 
         self.phone_dir = os.path.join(data_dir, phone)
-        self.camera = os.path.join(data_dir, 'canon')
+        self.image = os.path.join(data_dir, address)
 
         self.image_names = os.listdir(self.phone_dir)
 
@@ -40,4 +44,8 @@ class DPEDDataset(Dataset):
         camera_image = to_tensor(camera_image)/255.0
 
         return phone_image, camera_image
+
+
+    def video_process(self):
+        img_name2 = self
 
